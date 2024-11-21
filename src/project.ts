@@ -177,8 +177,33 @@ export class ProjectEngine {
    * TODO (kaniandr@gmail.com): currently each project consists of a single
    * file, update to support projects configured with a help of *.json file.
    */
-  start(doc: vscode.TextDocument, tool:ToolT): Thenable<Project> {
-    return new Promise((resolve, reject) => {
+   start(doc: vscode.TextDocument, tool:ToolT): Thenable<Project> {
+    return new Promise(async(resolve, reject) =>  {
+      let compileCommandsPath = path.join(vscode.workspace.workspaceFolders[0].uri.fsPath, 'compile_commands.json');
+
+      if (!fs.existsSync(compileCommandsPath)) {
+        await vscode.commands.executeCommand('tsar.createCompilationDatabase')
+      }
+      const data = await fs.promises.readFile(compileCommandsPath, 'utf-8');
+      const json = JSON.parse(data);
+      let fileList = json.map((entry: { directory: string, file: string }) => entry.directory + "/" + entry.file).join(" ");
+
+      let command = "tsar -emit-llvm -build-path=" + path.dirname(doc.uri.fsPath) + " " + fileList;
+
+      // how send message, if class Project(who send messages) has constructor which need uri of a project, but tota.ll file is not created yet?
+      // let message = new msg.CommandLine(command);
+      // project.send(message);
+
+      child_process.execSync(command);
+
+      const compiledFiles = await fileList.replace(/\.(c|cpp)\b/g, '.ll');
+      const totalFilePath = path.join(vscode.workspace.workspaceFolders[0].uri.fsPath, 'total.ll');
+
+      child_process.execSync("llvm-link-15 -S " + compiledFiles + " -o " + totalFilePath);
+
+      let projectFileUri = vscode.Uri.file(totalFilePath);
+      doc = await vscode.workspace.openTextDocument(projectFileUri);
+
       let project = this.project(doc.uri);
       if (project !== undefined) {
         vscode.window.showWarningMessage(
@@ -194,9 +219,9 @@ export class ProjectEngine {
         state.provider.update(project);
         return undefined;
       }
-      let check = this._checkDocument(doc);
-      if (check)
-        return reject(check);
+       let check = this._checkDocument(doc);
+      // if (check)
+      //   return reject(check);
       let uri = doc.uri;
       let prjDir = this._makeProjectDir(path.dirname(uri.fsPath));
       if (typeof prjDir != 'string')

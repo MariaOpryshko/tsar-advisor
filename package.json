@@ -194,6 +194,10 @@
         "command": "tsar.call.graph.unsafe",
         "title": "View Unsafe Control Flow",
         "icon": "icons/call-graph.svg"
+      },
+      {
+        "command": "tsar.createCompilationDatabase",
+        "title": "TSAR Refactor Compilation Database"
       }
     ],
     "menus": {
@@ -278,6 +282,11 @@
           "command": "tsar.gitgraph",
           "when": "resourceLangId == 'c' || resourceLangId == 'cpp'",
           "group": "1_tsar"
+        },
+        {
+          "command": "tsar.createCompilationDatabase",
+          "when": "resourceLangId == 'c' || resourceLangId == 'cpp'",
+          "group": "1_tsar"
         }
       ],
       "explorer/context": [
@@ -303,6 +312,11 @@
         },
         {
           "command": "tsar.gitgraph",
+          "when": "resourceLangId == 'c' || resourceLangId == 'cpp'",
+          "group": "1_tsar"
+        },
+        {
+          "command": "tsar.createCompilationDatabase",
           "when": "resourceLangId == 'c' || resourceLangId == 'cpp'",
           "group": "1_tsar"
         }

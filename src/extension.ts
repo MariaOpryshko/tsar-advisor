@@ -626,6 +626,43 @@ export function activate(context: vscode.ExtensionContext) {
     })
   });
 
+  let compilationDatabase = vscode.commands.registerCommand(
+    'tsar.createCompilationDatabase', async () => {
+      let selected;
+
+      //should be selected at least one file
+      while (!selected || selected.length === 0) {
+          const files = await vscode.workspace.findFiles('**/*.{c,cpp}');
+
+          const items = files.map(file => ({
+              label: path.basename(file.fsPath),
+              description: file.fsPath
+          }));
+
+          selected = await vscode.window.showQuickPick(items, {
+              canPickMany: true,
+              placeHolder: 'Choose files for compilation (.c or .cpp)'
+          });
+
+          if (!selected || selected.length === 0) {
+              vscode.window.showWarningMessage('You must select at least one file!');
+          }
+      }
+
+      const compileEntries = selected.map(item => ({
+          directory: path.dirname(item.description),
+          file: item.label,
+          command: "tsar -emit-llvm " + item.description 
+      }));
+
+      const compileCommandsPath = path.join(vscode.workspace.workspaceFolders[0].uri.fsPath, 'compile_commands.json');
+
+      fs.writeFileSync(compileCommandsPath, JSON.stringify(compileEntries, null, 2));
+
+      vscode.window.showInformationMessage(`compile_commands.json is created at: ${compileCommandsPath}`);
+    }
+  );
+
   let start = vscode.commands.registerCommand(
     'tsar.start', (uri:vscode.Uri) => {
       vscode.workspace.openTextDocument(uri)
@@ -764,5 +801,5 @@ export function activate(context: vscode.ExtensionContext) {
       project.focus = state;
       project.send(request);
     });
-  context.subscriptions.push(start, stop, statistic, openProject, showCalleeFunc, gitGraph);
+  context.subscriptions.push(start, stop, statistic, openProject, showCalleeFunc, gitGraph, compilationDatabase);
 }
