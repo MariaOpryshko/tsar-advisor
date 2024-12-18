@@ -34,7 +34,9 @@
     "onCommand:tsar.parallel.openmp",
     "onCommand:tsar.parallel.dvmh",
     "onCommand:tsar.parallel.dvmhsm",
-    "onCommand:tsar.gitgraph"
+    "onCommand:tsar.gitgraph",
+    "onCommand:tsar.refactorTsarProject",
+    "onCommand:tsar.addToTsarProject"
   ],
   "main": "./out/src/extension",
   "contributes": {
@@ -196,8 +198,12 @@
         "icon": "icons/call-graph.svg"
       },
       {
-        "command": "tsar.createCompilationDatabase",
-        "title": "TSAR Refactor Compilation Database"
+        "command": "tsar.refactorTsarProject",
+        "title": "TSAR Refactor TSAR Project"
+      },
+      {
+        "command": "tsar.addToTsarProject",
+        "title": "TSAR Add to Project"
       }
     ],
     "menus": {
@@ -284,7 +290,7 @@
           "group": "1_tsar"
         },
         {
-          "command": "tsar.createCompilationDatabase",
+          "command": "tsar.refactorTsarProject",
           "when": "resourceLangId == 'c' || resourceLangId == 'cpp'",
           "group": "1_tsar"
         }
@@ -316,7 +322,12 @@
           "group": "1_tsar"
         },
         {
-          "command": "tsar.createCompilationDatabase",
+          "command": "tsar.refactorTsarProject",
+          "when": "resourceLangId == 'c' || resourceLangId == 'cpp'",
+          "group": "1_tsar"
+        },
+        {
+          "command": "tsar.addToTsarProject",
           "when": "resourceLangId == 'c' || resourceLangId == 'cpp'",
           "group": "1_tsar"
         }

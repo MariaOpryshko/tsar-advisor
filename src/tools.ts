@@ -97,6 +97,9 @@ export default
             target: '-no-format'
         }
      ]
+    },
+    {
+        name: "project"
     }
   ]
 }

@@ -25,6 +25,7 @@ import { FileListProvider } from './fileList';
 import { LoopTreeViewProvider } from './loopExplorer';
 import simpleGit, { SimpleGit } from 'simple-git'
 import {exec, execSync} from 'child_process'
+import * as child_process from 'child_process';
 
 
 /**
@@ -552,6 +553,106 @@ function getGraphWebviewContent(commitGraph, HEAD, commitsData) {
 }
 
 
+function getWorkspaceRoot(fileUri: vscode.Uri) {
+  /// Получаем все открытые рабочие папки
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+      vscode.window.showErrorMessage('No workspace folder is open.');
+      return undefined;
+  }
+
+  // Ищем в какой рабочей области находится файл
+  const containingFolder = workspaceFolders.find(folder =>
+    fileUri.fsPath.startsWith(folder.uri.fsPath)
+  );
+
+  if (!containingFolder) {
+      vscode.window.showErrorMessage('The file is not part of any open workspace folder.');
+      return undefined;
+  }
+
+  return containingFolder.uri.fsPath;
+}
+
+
+function addFileToCompileCommands(filePath: string) {
+  const fileUri = vscode.Uri.file(filePath);
+  const workspaceRoot = getWorkspaceRoot(fileUri);
+  if (!workspaceRoot) {
+    return;
+  }
+
+  const compileCommandsPath = path.join(workspaceRoot, 'compile_commands.json');
+
+  // Создаем файл, если он не существует
+  if (!fs.existsSync(compileCommandsPath)) {
+    fs.writeFileSync(compileCommandsPath, '[]', 'utf8');
+  }
+
+  let data = JSON.parse(fs.readFileSync(compileCommandsPath, 'utf8'));
+
+  const absoluteFilePath = path.isAbsolute(filePath)
+    ? filePath
+    : path.join(workspaceRoot, filePath);
+
+  // Проверяем, существует ли запись для файла
+  const fileAlreadyExists = data.some((entry: any) => {
+    // Преобразуем путь файла в абсолютный, если он относительный
+    const normalizedEntryPath = path.isAbsolute(entry.file)
+      ? path.normalize(entry.file)
+      : path.join(entry.directory, path.normalize(entry.file));
+
+    return normalizedEntryPath === absoluteFilePath;
+  });
+
+  if (fileAlreadyExists) {
+    vscode.window.showInformationMessage(`${path.basename(filePath)} already in CompilaionDatabase.`);
+    return;
+  }
+
+  // Добавляем новую запись
+  data.push({
+    directory: workspaceRoot,
+    file: absoluteFilePath,
+    command: ''
+  });
+
+  fs.writeFileSync(compileCommandsPath, JSON.stringify(data, null, 2), 'utf8');
+  vscode.window.showInformationMessage(`${path.basename(filePath)} has been added to compile_commands.json.`);
+}
+
+function addFileToTsarProject(filePath: string) {
+  const fileUri = vscode.Uri.file(filePath);
+  const workspaceRoot = getWorkspaceRoot(fileUri);
+  if (!workspaceRoot) {
+    return;
+  }
+
+  const tsarProjectPath = path.join(workspaceRoot, 'tsar_project_file.json');
+
+  if (!fs.existsSync(tsarProjectPath)) {
+    fs.writeFileSync(tsarProjectPath, '[]', 'utf8');
+  }
+  
+  let data = JSON.parse(fs.readFileSync(tsarProjectPath, 'utf8'));
+
+  const absoluteFilePath = path.isAbsolute(filePath)
+    ? filePath
+    : path.join(workspaceRoot, filePath);
+
+  if (data.includes(absoluteFilePath)) {
+    vscode.window.showInformationMessage(`${path.basename(filePath)} already in Tsar Project.`);
+    return;
+  }
+
+  data.push(absoluteFilePath);
+
+  // Сохраняем обновленный массив обратно в файл
+  fs.writeFileSync(tsarProjectPath, JSON.stringify(data, null, 2), 'utf8');
+  vscode.window.showInformationMessage(`${path.basename(filePath)} has been added in Tsar Projet File.`);
+  
+}
+
 
 export function activate(context: vscode.ExtensionContext) {
   if (!openLog())
@@ -626,11 +727,12 @@ export function activate(context: vscode.ExtensionContext) {
     })
   });
 
-  let compilationDatabase = vscode.commands.registerCommand(
-    'tsar.createCompilationDatabase', async () => {
+  let refactorProject = vscode.commands.registerCommand(
+    'tsar.refactorTsarProject', async (uri:vscode.Uri) => {
+      // Пользователь должен выбрать, какие файлы должны составлять проект
       let selected;
 
-      //should be selected at least one file
+      // Должен быть выбран хотя бы один файл
       while (!selected || selected.length === 0) {
           const files = await vscode.workspace.findFiles('**/*.{c,cpp}');
 
@@ -649,49 +751,90 @@ export function activate(context: vscode.ExtensionContext) {
           }
       }
 
-      const compileEntries = selected.map(item => ({
-          directory: path.dirname(item.description),
-          file: item.label,
-          command: "tsar -emit-llvm " + item.description 
-      }));
+      // добавление файлов в Compilation Database
+      selected.forEach((item) => {
+        const filePath = item.description;
+        addFileToCompileCommands(filePath);
+      });
 
-      const compileCommandsPath = path.join(vscode.workspace.workspaceFolders[0].uri.fsPath, 'compile_commands.json');
+      const absolutePaths = selected.map(item => item.description);
+      
+      const tsarProjectPath = path.join(getWorkspaceRoot(uri), 'tsar_project_file.json');
 
-      fs.writeFileSync(compileCommandsPath, JSON.stringify(compileEntries, null, 2));
-
-      vscode.window.showInformationMessage(`compile_commands.json is created at: ${compileCommandsPath}`);
+      // создание или преписывание TSAR файла-проекта
+      fs.writeFileSync(tsarProjectPath, JSON.stringify(absolutePaths, null, 2));
     }
-  );
+  )
+
+  let addFileToProject = vscode.commands.registerCommand(
+    'tsar.addToTsarProject', async (uri:vscode.Uri) => {
+      addFileToCompileCommands(uri.fsPath);
+      addFileToTsarProject(uri.fsPath);
+
+  });
 
   let start = vscode.commands.registerCommand(
-    'tsar.start', (uri:vscode.Uri) => {
-      vscode.workspace.openTextDocument(uri)
-        .then((success) => {
-          return engine.start(success,
-            server.tools.find(t=>{return t.name === 'tsar'}));
-         })
-        .then(
-          async project => {
-            await engine.runTool(project);
-            project.providerState(FileListProvider.scheme).active = true;
-            project.send(new msg.FileList);
-            vscode.commands.executeCommand('tsar.function.list', project.uri);
-            
-            let git = simpleGit(path.dirname(project.uri.fsPath));
-            git.checkIsRepo()
-            .then(async (isRepo) => {
-              if (!isRepo) {
-                await git.init();
-              }
-            })
+    'tsar.start', async (uri:vscode.Uri) => {
+      const projectDir = getWorkspaceRoot(uri).toString();
+      const projectPath = path.join(projectDir, 'tsar_project_file.json');
 
-            let GitFilePath = path.join(path.dirname(project.uri.fsPath), '.tsar_git');
-            if (!fs.existsSync(GitFilePath)) {
-              fs.writeFileSync(GitFilePath, '', 'utf-8'); // here can be written information that should be saved for git
+      if (!fs.existsSync(projectPath)) {
+        await vscode.commands.executeCommand('tsar.refactorTsarProject')
+      }
+      vscode.workspace.openTextDocument(vscode.Uri.file(projectPath))
+      .then((success) => {
+        return engine.start(success,
+          server.tools.find(t=>{return t.name === 'project'}));
+      })
+      .then( async project => {
+        project = await engine.runProjectTool(project);
+        const data = fs.readFileSync(projectPath, 'utf-8');
+        const fileList = JSON.parse(data);
+        const compiledFiles = fileList.toString().replace(',', ' ').replace(/\.(c|cpp)\b/g, '.ll');
+        const totalFilePath = path.join(projectDir, 'total.ll');
+
+        try {
+          const cliString = "llvm-link-15 -S " + compiledFiles + " -o " + totalFilePath
+          child_process.execSync(cliString);
+        } catch (error) {
+          const errorMessage = `Linking failed: ${error.stderr.toString()}`;
+          vscode.window.showErrorMessage(errorMessage);
+        }
+
+        let projectFileUri = vscode.Uri.file(totalFilePath)
+        return projectFileUri;
+      })
+      .then((projectUri) => {
+        return vscode.workspace.openTextDocument(projectUri)
+      })
+      .then((success) => {
+        return engine.start(success,
+          server.tools.find(t=>{return t.name === 'tsar'}));
+      })
+      .then(
+        async project => {
+          await engine.runTool(project);
+          project.providerState(FileListProvider.scheme).active = true;
+          project.send(new msg.FileList);
+          vscode.commands.executeCommand('tsar.function.list', project.uri);
+          
+          let git = simpleGit(path.dirname(project.uri.fsPath));
+          git.checkIsRepo()
+          .then(async (isRepo) => {
+            if (!isRepo) {
+              await git.init();
             }
-          },
-          reason => { onReject(reason, uri) })
-    });
+          })
+
+          let GitFilePath = path.join(path.dirname(project.uri.fsPath), '.tsar_git');
+          if (!fs.existsSync(GitFilePath)) {
+            fs.writeFileSync(GitFilePath, '', 'utf-8'); // here can be written information that should be saved for git
+          }
+        },
+        reason => { onReject(reason, uri) 
+      })
+    }
+  );
   t.registerCommands([
     {
       command: 'tsar.transform.propagate',
@@ -704,7 +847,7 @@ export function activate(context: vscode.ExtensionContext) {
       run: '-clang-inline'
     },
     {
-      command: 'tsar.transform.replace',
+      command: 'tsar.transformccff.replace',
       title: 'TSAR Structure Replacement',
       run: '-clang-struct-replacement'
     },
@@ -801,5 +944,5 @@ export function activate(context: vscode.ExtensionContext) {
       project.focus = state;
       project.send(request);
     });
-  context.subscriptions.push(start, stop, statistic, openProject, showCalleeFunc, gitGraph, compilationDatabase);
+  context.subscriptions.push(start, stop, statistic, openProject, showCalleeFunc, gitGraph, refactorProject, addFileToProject);
 }
