@@ -552,6 +552,25 @@ function getGraphWebviewContent(commitGraph, HEAD, commitsData) {
   </html>`;
 }
 
+async function waitForFiles(filePaths: string[], timeout: number = 10000) {
+  const checkInterval = 100; // проверять каждые 100 мс
+  let elapsedTime = 0;
+
+  return new Promise<void>((resolve, reject) => {
+    const interval = setInterval(() => {
+      const allFilesExist = filePaths.every(file => fs.existsSync(file));
+      if (allFilesExist) {
+        clearInterval(interval);
+        resolve();
+      }
+      elapsedTime += checkInterval;
+      if (elapsedTime >= timeout) {
+        clearInterval(interval);
+        reject(new Error(`Files were not created in ${timeout} ms: ${filePaths.join(', ')}`));
+      }
+    }, checkInterval);
+  });
+}
 
 function getWorkspaceRoot(fileUri: vscode.Uri) {
   /// Получаем все открытые рабочие папки
@@ -571,7 +590,7 @@ function getWorkspaceRoot(fileUri: vscode.Uri) {
       return undefined;
   }
 
-  return containingFolder.uri.fsPath;
+  return containingFolder.uri.fsPath.toString();
 }
 
 
@@ -605,20 +624,16 @@ function addFileToCompileCommands(filePath: string) {
     return normalizedEntryPath === absoluteFilePath;
   });
 
-  if (fileAlreadyExists) {
-    vscode.window.showInformationMessage(`${path.basename(filePath)} already in CompilaionDatabase.`);
-    return;
+  if (!fileAlreadyExists) {
+    // Добавляем новую запись
+    data.push({
+      directory: workspaceRoot,
+      file: absoluteFilePath,
+      command: ''
+    });
+  
+    fs.writeFileSync(compileCommandsPath, JSON.stringify(data, null, 2), 'utf8');
   }
-
-  // Добавляем новую запись
-  data.push({
-    directory: workspaceRoot,
-    file: absoluteFilePath,
-    command: ''
-  });
-
-  fs.writeFileSync(compileCommandsPath, JSON.stringify(data, null, 2), 'utf8');
-  vscode.window.showInformationMessage(`${path.basename(filePath)} has been added to compile_commands.json.`);
 }
 
 function addFileToTsarProject(filePath: string) {
@@ -641,7 +656,6 @@ function addFileToTsarProject(filePath: string) {
     : path.join(workspaceRoot, filePath);
 
   if (data.includes(absoluteFilePath)) {
-    vscode.window.showInformationMessage(`${path.basename(filePath)} already in Tsar Project.`);
     return;
   }
 
@@ -649,8 +663,6 @@ function addFileToTsarProject(filePath: string) {
 
   // Сохраняем обновленный массив обратно в файл
   fs.writeFileSync(tsarProjectPath, JSON.stringify(data, null, 2), 'utf8');
-  vscode.window.showInformationMessage(`${path.basename(filePath)} has been added in Tsar Projet File.`);
-  
 }
 
 
@@ -758,8 +770,9 @@ export function activate(context: vscode.ExtensionContext) {
       });
 
       const absolutePaths = selected.map(item => item.description);
+      const workspaceRoot = getWorkspaceRoot(uri);
       
-      const tsarProjectPath = path.join(getWorkspaceRoot(uri), 'tsar_project_file.json');
+      const tsarProjectPath = path.join(workspaceRoot, 'tsar_project_file.json');
 
       // создание или преписывание TSAR файла-проекта
       fs.writeFileSync(tsarProjectPath, JSON.stringify(absolutePaths, null, 2));
@@ -775,11 +788,11 @@ export function activate(context: vscode.ExtensionContext) {
 
   let start = vscode.commands.registerCommand(
     'tsar.start', async (uri:vscode.Uri) => {
-      const projectDir = getWorkspaceRoot(uri).toString();
+      const projectDir = getWorkspaceRoot(uri);
       const projectPath = path.join(projectDir, 'tsar_project_file.json');
 
       if (!fs.existsSync(projectPath)) {
-        await vscode.commands.executeCommand('tsar.refactorTsarProject')
+        await vscode.commands.executeCommand('tsar.refactorTsarProject', uri);
       }
       vscode.workspace.openTextDocument(vscode.Uri.file(projectPath))
       .then((success) => {
@@ -787,11 +800,13 @@ export function activate(context: vscode.ExtensionContext) {
           server.tools.find(t=>{return t.name === 'project'}));
       })
       .then( async project => {
-        project = await engine.runProjectTool(project);
+        project = engine.runProjectTool(project);
         const data = fs.readFileSync(projectPath, 'utf-8');
         const fileList = JSON.parse(data);
         const compiledFiles = fileList.toString().replace(',', ' ').replace(/\.(c|cpp)\b/g, '.ll');
         const totalFilePath = path.join(projectDir, 'total.ll');
+
+        await waitForFiles(fileList.map((file) => file.replace(/\.(c|cpp)\b/g, '.ll')));
 
         try {
           const cliString = "llvm-link-15 -S " + compiledFiles + " -o " + totalFilePath

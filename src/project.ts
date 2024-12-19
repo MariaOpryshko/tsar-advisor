@@ -179,38 +179,6 @@ export class ProjectEngine {
    */
    start(doc: vscode.TextDocument, tool:ToolT): Thenable<Project> {
     return new Promise((resolve, reject) =>  {
-      // //не забыть поменять на правильный выбор директории
-      // let projectPath = path.join(vscode.workspace.workspaceFolders[0].uri.fsPath, 'tsar_project_file.json');
-
-      // if (!fs.existsSync(projectPath)) {
-      //   await vscode.commands.executeCommand('tsar.refactorTsarProject')
-      // }
-      // const data = await fs.promises.readFile(projectPath, 'utf-8');
-      // const fileList = JSON.parse(data);
-      // const fileListStrFormat = fileList.toString().replace(',', ' ')
-      // // let fileList = json.map(filepath => filepath.join(" "));
-
-      // let command = "tsar -emit-llvm -build-path=" + vscode.workspace.workspaceFolders[0].uri.fsPath + " " + fileListStrFormat;
-
-      // // how send message, if class Project(who send messages) has constructor which need uri of a project, but tota.ll file is not created yet?
-      // // let message = new msg.CommandLine(command);
-      // // project.send(message);
-
-      // child_process.execSync(command);
-
-      // const compiledFiles = await fileListStrFormat.replace(/\.(c|cpp)\b/g, '.ll');
-      // const totalFilePath = path.join(vscode.workspace.workspaceFolders[0].uri.fsPath, 'total.ll');
-
-      // try {
-      //   child_process.execSync("llvm-link-15 -S " + compiledFiles + " -o " + totalFilePath);
-      // } catch (error) {
-      //   const errorMessage = `Linking failed: ${error.stderr.toString()}`;
-      //   vscode.window.showErrorMessage(errorMessage);
-      // }
-
-      // let projectFileUri = vscode.Uri.file(totalFilePath);
-      // doc = await vscode.workspace.openTextDocument(projectFileUri);
-
       let project = this.project(doc.uri);
       if (project !== undefined) {
         vscode.window.showWarningMessage(
@@ -310,13 +278,13 @@ export class ProjectEngine {
   }
 
   // project should be *.json file
-  async runProjectTool(project: Project, query?: string) {
+  runProjectTool(project: Project, query?: string) {
     let cl = new msg.CommandLine(log.Extension.displayName);
 
     this._projects.forEach((val, key) =>{
       cl.Args.push(vscode.Uri.file(key).fsPath);
     })
-    cl.Args.push("-emit-llvm");
+    // cl.Args.push("-emit-llvm");
     cl.Query = "-emit-llvm";
     // cl.Args.push(query);
 
@@ -327,7 +295,7 @@ export class ProjectEngine {
     cl.Output = path.join(project.dirname, log.Project.output);
     cl.Error = path.join(project.dirname, log.Project.error);
 
-    await project.send(cl);
+    project.send(cl);
 
     return project;
   }
@@ -743,34 +711,13 @@ export class Project {
   /**
    * Send request to a server.
    */
-  send(request: any): Promise<void> {
-    return new Promise((resolve, reject) => {
+  send(request: any) {
     let requestString = JSON.stringify(request) + log.Project.delimiter;
     log.Log.logs[0].write(log.Message.client.replace('{0}', requestString));
     this._client.write(requestString)
-
-    this._client.on('data', (data) => { 
-      resolve();
-    });
-    this._client.on('error', (error) => {
-      reject(error);
-    });
-
-    this._client.on('end', () => {
-      reject();
-    });
-
-    // this._client.on('data', (data) => {
-    //   const response = data.toString();
-    //   console.log('Ответ от сервера:', response);
-    // });
-
-    // this._client.on('end', () => {
-    //   console.log('Соединение с сервером закрыто.');
-    // });
     /*if (!this._client.write(requestString))
       this._client.once('drain', () => {this.send(request)});*/
-  })}
+  }
 
   /**
    * Register content provider with a specified base scheme.
